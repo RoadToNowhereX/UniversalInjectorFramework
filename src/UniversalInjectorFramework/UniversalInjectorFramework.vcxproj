@@ -57,6 +57,14 @@
       <Configuration>dxgi</Configuration>
       <Platform>x64</Platform>
     </ProjectConfiguration>
+    <ProjectConfiguration Include="iphlpapi|Win32">
+      <Configuration>iphlpapi</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="iphlpapi|x64">
+      <Configuration>iphlpapi</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
     <ProjectConfiguration Include="opengl32|Win32">
       <Configuration>opengl32</Configuration>
       <Platform>Win32</Platform>
@@ -196,6 +204,14 @@
       <ModuleDefinitionFile>proxies\dxgi.def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='iphlpapi'">
+    <ClCompile>
+      <PreprocessorDefinitions>UIF_LIB_IPHLPAPI;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <ModuleDefinitionFile>proxies\iphlpapi.def</ModuleDefinitionFile>
+    </Link>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='opengl32'">
     <ClCompile>
       <PreprocessorDefinitions>UIF_LIB_OPENGL32;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -253,6 +269,7 @@
     <ClInclude Include="proxies\d3dcompiler_47.h" />
     <ClInclude Include="proxies\d3dx9_43.h" />
     <ClInclude Include="proxies\dxgi.h" />
+    <ClInclude Include="proxies\iphlpapi.h" />
     <ClInclude Include="proxies\opengl32.h" />
     <ClInclude Include="proxies\version.h" />
     <ClInclude Include="proxies\winmm.h" />
@@ -289,6 +306,7 @@
     <ClCompile Include="proxies\d3dcompiler_47.cpp" />
     <ClCompile Include="proxies\d3dx9_43.cpp" />
     <ClCompile Include="proxies\dxgi.cpp" />
+    <ClCompile Include="proxies\iphlpapi.cpp" />
     <ClCompile Include="proxies\opengl32.cpp" />
     <ClCompile Include="proxies\version.cpp" />
     <ClCompile Include="proxies\winmm.cpp" />
@@ -306,6 +324,7 @@
     <None Include="proxies\d3dcompiler_47.def" />
     <None Include="proxies\d3dx9_43.def" />
     <None Include="proxies\dxgi.def" />
+    <None Include="proxies\iphlpapi.def" />
     <None Include="proxies\opengl32.def" />
     <None Include="proxies\version.def" />
     <None Include="proxies\winmm.def" />
