@@ -48,6 +48,11 @@ namespace uif
 
 		auto& injector_config = config()["injector"];
 
+		if(!injector_config.is_object())
+		{
+			injector_config = nlohmann::json::object();
+		}
+
 		enabled = injector_config.value("enable", true);
 		if(!enabled) {
 			utils::debug_log("injector::attach: disabled");
