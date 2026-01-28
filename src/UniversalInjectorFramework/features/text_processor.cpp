@@ -20,17 +20,18 @@ namespace uif::features
 	namespace {
 		class replace_chars_rule : public text_processor::processing_rule
 		{
-			std::wstring source_chars;
-			std::wstring target_chars;
+			std::wstring source;
+			std::wstring target;
 
 		public:
-			explicit replace_chars_rule(std::wstring source_chars, std::wstring target_chars)
-				: source_chars(std::move(source_chars)), target_chars(std::move(target_chars))
-			{ }
+			explicit replace_chars_rule(std::wstring sourceChars, std::wstring targetChars)
+				: source(std::move(sourceChars)), target(std::move(targetChars))
+			{
+			}
 
 			bool process(std::wstring& value) override
 			{
-				const size_t substCount = std::min(source_chars.length(), target_chars.length());
+				const size_t substCount = std::min(source.length(), target.length());
 				const size_t valueLength = value.length();
 
 				if (substCount == 0) return false;
@@ -40,9 +41,9 @@ namespace uif::features
 				{
 					for (size_t j = 0; j < substCount; j++)
 					{
-						if (value[i] == source_chars[j])
+						if (value[i] == source[j])
 						{
-							value[i] = target_chars[j];
+							value[i] = target[j];
 							anyMatch = true;
 							goto nextChar;
 						}
@@ -59,15 +60,16 @@ namespace uif::features
 		{
 			std::vector<std::wstring> source;
 			std::vector<std::wstring> target;
-			size_t count;
 
 		public:
-			explicit replace_full_string_rule(const std::vector<std::wstring>& source, const std::vector<std::wstring>& target)
-				: source(source), target(target), count(std::min(source.size(), target.size()))
-			{ }
+			explicit replace_full_string_rule(std::vector<std::wstring> source, std::vector<std::wstring> target)
+				: source(std::move(source)), target(std::move(target))
+			{
+			}
 
 			bool process(std::wstring& value) override
 			{
+				size_t count = std::min(source.size(), target.size());
 				for (size_t i = 0; i < count; ++i)
 				{
 					if (value == source[i])
@@ -83,24 +85,34 @@ namespace uif::features
 
 		class replace_substring_rule : public text_processor::processing_rule
 		{
-			std::wstring match_string;
-			std::wstring replacement;
+			std::vector<std::wstring> source;
+			std::vector<std::wstring> target;
 
 		public:
-			explicit replace_substring_rule(std::wstring match_string, std::wstring replacement)
-				: match_string(std::move(match_string)), replacement(std::move(replacement))
-			{ }
+			explicit replace_substring_rule(std::vector<std::wstring> source, std::vector<std::wstring> target)
+				: source(std::move(source)), target(std::move(target))
+			{
+			}
 
 			bool process(std::wstring& value) override
 			{
-				if (match_string.empty()) return false;
-
-				size_t start_pos = 0;
 				bool anyMatch = false;
-				while ((start_pos = value.find(match_string, start_pos)) != std::string::npos) {
-					value.replace(start_pos, match_string.length(), replacement);
-					start_pos += replacement.length();
-					anyMatch = true;
+
+				size_t count = std::min(source.size(), target.size());
+				for (size_t i = 0; i < count; ++i)
+				{
+					const std::wstring& matchString = source[i];
+					const std::wstring& replacement = target[i];
+
+					if (matchString.empty()) continue;
+
+					size_t startPos = 0;
+					while ((startPos = value.find(matchString, startPos)) != std::string::npos)
+					{
+						value.replace(startPos, matchString.length(), replacement);
+						startPos += replacement.length();
+						anyMatch = true;
+					}
 				}
 
 				return anyMatch;
@@ -109,20 +121,29 @@ namespace uif::features
 
 		class replace_regex_rule : public text_processor::processing_rule
 		{
-			std::wregex regex;
-			std::wstring replacement;
+			std::vector<std::wregex> patterns;
+			std::vector<std::wstring> replacements;
 
 		public:
-			explicit replace_regex_rule(std::wregex regex, std::wstring replacement)
-				: regex(std::move(regex)), replacement(std::move(replacement))
-			{ }
+			explicit replace_regex_rule(std::vector<std::wregex> patterns, std::vector<std::wstring> replacements)
+				: patterns(std::move(patterns)), replacements(std::move(replacements))
+			{
+			}
 
 			bool process(std::wstring& value) override
 			{
-				const auto result = std::regex_replace(value, regex, replacement);
-				const bool anyChange = result != value;
-				value = result;
-				return anyChange;
+				std::wstring original = value;
+
+				size_t count = std::min(patterns.size(), replacements.size());
+				for (size_t i = 0; i < count; ++i)
+				{
+					const std::wregex& pattern = patterns[i];
+					const std::wstring& replacement = replacements[i];
+
+					value = std::regex_replace(value, pattern, replacement);
+				}
+
+				return value != original;
 			}
 		};
 
@@ -131,9 +152,10 @@ namespace uif::features
 			std::wstring overwrite_value;
 
 		public:
-			explicit overwrite_rule(std::wstring overwrite_value)
-				: overwrite_value(std::move(overwrite_value))
-			{ }
+			explicit overwrite_rule(std::wstring value)
+				: overwrite_value(std::move(value))
+			{
+			}
 
 			bool process(std::wstring& value) override
 			{
@@ -232,11 +254,11 @@ namespace uif::features
 	{
 		std::vector<std::wstring> result{};
 
-		if(value.is_string())
+		if (value.is_string())
 		{
 			result.push_back(encoding::utf8_to_utf16(value.get<std::string>()));
 		}
-		else if(value.is_array())
+		else if (value.is_array())
 		{
 			for (const auto& string : value)
 			{
@@ -253,52 +275,58 @@ namespace uif::features
 
 		if (type == "replace_chars")
 		{
-			const auto source_chars = encoding::utf8_to_utf16(rule.value("source_chars", ""));
-			const auto target_chars = encoding::utf8_to_utf16(rule.value("target_chars", ""));
+			const auto sourceChars = encoding::utf8_to_utf16(rule.value("source_chars", ""));
+			const auto targetChars = encoding::utf8_to_utf16(rule.value("target_chars", ""));
 
-			if (source_chars.empty() || target_chars.empty())
+			if (sourceChars.empty() || targetChars.empty())
 			{
 				std::cout << *this << dark_red(" Warning:") << " no substitutions defined for replace_chars rule\n";
 				return nullptr;
 			}
 
-			return new replace_chars_rule(source_chars, target_chars);
+			return new replace_chars_rule(sourceChars, targetChars);
 		}
 
 		if (type == "replace_full_string")
 		{
-			const auto source = parse_strings(rule["match"]);
-			const auto target = parse_strings(rule["replacement"]);
+			const auto matchStrings = parse_strings(rule["match"]);
+			const auto replacements = parse_strings(rule["replacement"]);
 
-			if (source.empty() || target.empty())
+			if (matchStrings.empty() || replacements.empty())
 			{
 				std::cout << *this << dark_red(" Warning:") << " no substitutions defined for replace_full_string rule\n";
 				return nullptr;
 			}
 
-			if(source.size() != target.size())
+			if (matchStrings.size() != replacements.size())
 			{
 				std::cout << *this << dark_red(" Warning:") << " different number of match and replacement strings\n";
 			}
 
-			return new replace_full_string_rule(source, target);
+			return new replace_full_string_rule(matchStrings, replacements);
 		}
 
 		if (type == "replace_substring")
 		{
-			const auto match_string = encoding::utf8_to_utf16(rule.value("match", ""));
-			const auto replacement = encoding::utf8_to_utf16(rule.value("replacement", ""));
+			const auto matchStrings = parse_strings(rule["match"]);
+			const auto replacements = parse_strings(rule["replacement"]);
 
-			return new replace_substring_rule(match_string, replacement);
+			return new replace_substring_rule(matchStrings, replacements);
 		}
 
 		if (type == "replace_regex")
 		{
-			const auto pattern = encoding::utf8_to_utf16(rule.value("pattern", ""));
-			const auto replacement = encoding::utf8_to_utf16(rule.value("replacement", ""));
-			const auto regex = std::wregex(pattern);
+			const auto matchStrings = parse_strings(rule["match"]);
+			const auto replacements = parse_strings(rule["replacement"]);
 
-			return new replace_regex_rule(regex, replacement);
+			size_t count = std::min(matchStrings.size(), replacements.size());
+			std::vector<std::wregex> patterns(count);
+			for (size_t i = 0; i < count; ++i)
+			{
+				patterns[i] = std::wregex(matchStrings[i]);
+			}
+
+			return new replace_regex_rule(patterns, replacements);
 		}
 
 		if (type == "overwrite")
@@ -336,52 +364,54 @@ namespace uif::features
 			{
 				parse_mask(element, mask);
 			}
+			return;
 		}
-		else if (value.is_string())
+
+		if (!value.is_string())
+			return;
+
+		const auto name = value.get<std::string>();
+		if (name == "*")
 		{
-			const auto name = value.get<std::string>();
-			if (name == "*")
+			mask.set();
+		}
+		else if (name.starts_with('@'))
+		{
+			const char* apiSetName = name.c_str() + 1;
+
+			// check custom api sets first so they can overwrite default names
+			for (auto& apiSet : custom_api_sets)
 			{
-				mask.set();
+				if (strcmp(apiSet.name.c_str(), apiSetName) == 0)
+				{
+					mask |= apiSet.mask;
+					return;
+				}
 			}
-			else if (name.starts_with('@'))
+
+			for (auto& apiSet : default_api_sets)
 			{
-				const char* apiSetName = name.c_str() + 1;
-
-				// check custom api sets first so they can overwrite default names
-				for (auto& apiSet : custom_api_sets)
+				if (strcmp(apiSet.name.c_str(), apiSetName) == 0)
 				{
-					if (strcmp(apiSet.name.c_str(), apiSetName) == 0)
-					{
-						mask |= apiSet.mask;
-						return;
-					}
+					mask |= apiSet.mask;
+					return;
 				}
-
-				for (auto& apiSet : default_api_sets)
-				{
-					if (strcmp(apiSet.name.c_str(), apiSetName) == 0)
-					{
-						mask |= apiSet.mask;
-						return;
-					}
-				}
-
-				std::cout << *this << dark_yellow(" Warning:") << " unknown api set: " << apiSetName << "\n";
 			}
-			else
+
+			std::cout << *this << dark_yellow(" Warning:") << " unknown api set: " << apiSetName << "\n";
+		}
+		else
+		{
+			for (auto& descriptor : api_descriptors)
 			{
-				for (auto& descriptor : api_descriptors)
+				if (strcmp(descriptor.name, name.c_str()) == 0)
 				{
-					if (strcmp(descriptor.name, name.c_str()) == 0)
-					{
-						mask.set(static_cast<size_t>(descriptor.api));
-						return;
-					}
+					mask.set(static_cast<size_t>(descriptor.api));
+					return;
 				}
-
-				std::cout << *this << dark_yellow(" Warning:") << " unknown api: " << name << "\n";
 			}
+
+			std::cout << *this << dark_yellow(" Warning:") << " unknown api: " << name << "\n";
 		}
 	}
 
