@@ -5,7 +5,7 @@ The "Universal Injector Framework" (UIF) is an extensible library that can be us
 # Manual for Users
 
 UIF comes bundled with several features, primarily designed for localization of Japanese games.
-The behavior of all features can be enabled and controlled with a `config.json` file located in the same directory as the [proxy dll](#what-is-a-proxy). Some features are mutually exclusive, because any one game function can only be modified by one feature at a time.
+The behavior of all features can be enabled and controlled with a `uif_config.json` file located in the same directory as the [proxy dll](#what-is-a-proxy). Some features are mutually exclusive, because any one game function can only be modified by one feature at a time.
 
 The configuration is a [JSON file](https://en.wikipedia.org/wiki/JSON), which is easily readable by both people and machines. All config options must be contained within a root object, denoted by a pair of curly braces.
 
@@ -14,8 +14,9 @@ The following sections will explain all the default features and their configura
 - [Injector](#injector)
 - [Allocate Console](#allocate-console)
 - [Start Suspended](#start-suspended)
-- [Character Substitution](#character-substitution)
-- [Tunnel Decoder](#tunnel-decoder)
+- [Character Substitution](#character-substitution) (deprecated)
+- [Tunnel Decoder](#tunnel-decoder) (deprecated)
+- [Text Processor](#text-processor)
 - [Font Manager](#font-manager)
 - [Locale Emulator](#locale-emulator)
 - [Window Manager](#window-manager)
@@ -29,11 +30,13 @@ If `/injector/enable` is set to false, the injector will just load the [original
 
 The `target_module` option lets you specify which module's entry point should be highjacked to perform the injector initialization. In most cases this will be the app executable, so omitting the option will default to that. This is mainly useful when the injector is not a direct dependency of the .exe, but loaded at runtime - either via an explicitly LoadLibrary call or via [delay-loading](https://docs.microsoft.com/en-us/cpp/build/reference/linker-support-for-delay-loaded-dlls?view=msvc-170).
 
-The `print_loade_modules` option - if set to true - will print a list of all loaded modules _before injector initialization_. This is purely meant for debugging purposes.
+The `print_loaded_modules` option - if set to true - will print a list of all loaded modules _before injector initialization_. This is purely meant for debugging purposes.
 
 `hook_modules` is an array of names referring to modules loaded by the target executable. When a feature attempts to hook an import, the imported function will be hooked in the main executable as well as in all modules listed here. Make sure this list does not contain the name of your proxy dll, as that would mess with the imports of the injector itself.
 
 `load_modules` is an array of strings, each of which contains the path to a dll file that should be loaded on startup. You might want to hook functions in a dependency of the target executable via `hook_modules`. This will fail if the feature initialization is run before said dependency is loaded, so add it to this list to force it to be loaded before initialization.
+
+`export_bson_config` allows you to export the current `uif_config.json` file as a binary `uif_config.dat`. This is mainly intended to discourage end users from changing settings in the config without a solid understanding of what they are doing. If both a json and dat file are present, the json file will take priority.
 
 ```json
 {
@@ -41,6 +44,7 @@ The `print_loade_modules` option - if set to true - will print a list of all loa
     "enable": true,
     "target_module": "Engine.dll",
     "print_loaded_modules": false,
+    "export_bson_config": false,
     "load_modules": [
       "plugin/EngineHelpers.dll"
     ],
@@ -85,6 +89,9 @@ Please note that for the second option to work, you need to enable console alloc
 
 ## Character Substitution
 
+> [!WARNING]
+> This feature is deprecated. Use the text processor feature instead.
+
 This feature allows to replace certain characters by others. It can be used to print characters not supported by the application due to the character set. Many Japanese game engines use the Shift-JIS charset, which doesn't have support for some characters used in the English language.
 
 The character substitution feature can be used to replace supported characters you don't need by characters you _do_ need.
@@ -105,6 +112,9 @@ The configuration file below would replace all occurrences of `ｱ` by `á`, `�
 
 ## Tunnel Decoder
 
+> [!WARNING]
+> This feature is deprecated. Use the text processor feature instead.
+
 The tunnel decoder is a more powerful, but more complicated alternative to the character substitution feature. It implements the Shift-JIS tunnel encoding developed by [arcusmaximus](https://github.com/arcusmaximus/VNTranslationTools), which maps up to 3422 characters to unassigned Shift-JIS codepoints.
 
 To enable the feature, set the `/tunnel_decoder/enable` option to true. Other than that, there is only one option: the `mapping`. This should be the same as returned by the corresponding [tunnel encoder](https://github.com/AtomCrafty/yukatool2/blob/master/src/Yuka.Core/Util/EncodingUtils.cs#L55).
@@ -114,6 +124,96 @@ To enable the feature, set the `/tunnel_decoder/enable` option to true. Other th
   "tunnel_decoder": {
     "enable": true,
     "mapping": "éáäöüß"
+  }
+}
+```
+
+## Text Processor
+
+The text processor feature supercedes the character substitution and tunnel decoder features, as well as part of the window manager functionality. It implements a flexible, rule based approach to text manipulation.
+
+Note: Whenever this documentation asks for a list of strings, a single string is also accepted.
+
+To enable the processor, set the `/text_processor/enable` option to true. By default all it does is to intercept calls to the ansi versions of various Windows api functions and convert the input strings to utf16 before calling the unicode variant of the same function.
+
+The ansi code page used for this conversion can be set via the `conversion_codepage` option. It defaults to 932, the Shift-JIS code page. Optionally you can also use the Shift-JIS tunnel encoding by setting `use_tunnel_decoder` to true and specifying your character map with the `tunnel_mapping` option.
+
+### Processing Rules
+
+To unlock the full potential of the text processor feature you will need to set `rules` to an array of rule objects. There are five different types of rules. The type of a rule must be specified in its `type` option.
+
+- `replace_chars` rules replace the functionality of the character substitution feature. The character mapping is specified using the `source_chars` and `target_chars` fields.
+
+- `replace_full_string` rules implement a simple lookup table that replaces full strings. It has two fields, `match` and `replacement`, which can both be set to an array of strings. If a string within the `match` list is passed to a supported API, it is replaced with the corresponding string in the `replacement` list at the same index.
+
+- `replace_substring` rules work the same as `replace_full_string`, except that the match strings don't have to match the entire target string, but merely need to be contained in it. Every occurrence of the match string in a target string is replaced with the replacement string. Each pair of match/replacement strings is processed in order, so the second pair operates on the result of applying the first pair.
+
+- `replace_regex` rules are the more powerful equivalent to `replace_substring`. The `match` strings are regular expressions and the `replacement` strings can contain `$1` references to capture groups in the corresponding pattern.
+
+- `overwrite` rules simply replace all strings passed in with a constant `value`. This may sound useless at first, but can be powerful when restricted to a single API.
+
+### APIs
+
+The text processor by default hooks all supported APIs, but usually only a subset of those are relevant for any given program. Which APIs should be enabled can be controlled with the `enabled_apis` option. It is an array of strings that contains the names of supported APIs or an API set, where the latter are prefixed with an `@` sign. A list of all supported APIs and predefined API sets can be found at the end of [text_processor.hooks.cpp](https://github.com/AtomCrafty/UniversalInjectorFramework/blob/main/src/UniversalInjectorFramework/features/text_processor.hooks.cpp).
+
+In addition to globally enabling and disabling APIs, each rule has its own optional `apis` field. Rules are only applied to strings passed to APIs in that list, but if the field is omitted they apply to all APIs.
+
+Finally, a word on API sets. An API set is just a name for a group of APIs. Since most Windows APIs handling strings come in an A and W variant, each such pair has an API set predefined. So including `@DrawText` in an API list will add both `DrawTextA` and `DrawTextW` to it.
+
+You can also define custom API sets with the `api_sets` field. It is an object where each field defines an API set with the field name and the APIs specify in the field value (an array of strings).
+
+```json
+{
+  "text_processor": {
+    "enable": true,
+    "enabled_apis": [
+      "MessageBoxA",
+      "InsertMenuItemA",
+      "@GetGlyphOutline",
+      "@GetTextExtentExPoint",
+      "@MSG"
+    ],
+    "api_sets": {
+      "GlyphRendering": ["@GetGlyphOutline", "@GetTextExtentExPoint"]
+    },
+    "conversion_codepage": 932,
+    "use_tunnel_decoder": false,
+    "tunnel_mapping": "",
+    "rules": [
+      {
+        "type": "replace_chars",
+        "apis": ["@GlyphRendering"],
+        "source_chars": "ｱｲｳｴｵ",
+        "target_chars": "áíúéó"
+      },
+      {
+        "type": "replace_full_string",
+        "apis": "MessageBoxA",
+        "match": [
+          "確認",
+          "終了します。よろしいですか？",
+          "同一アプリケーションが既に起動されています",
+          "Save\\が存在しません。フォルダを作成しますか？"
+        ],
+        "replacement": [
+          "Confirm",
+          "Do you want to exit the game?",
+          "The game is already running.",
+          "No save folder found. Create it now?"
+        ]
+      },
+      {
+        "type": "replace_full_string",
+        "apis": "InsertMenuItemA",
+        "match": ["ウィンドウサイズ初期化"],
+        "replacement": ["Reset Window Size"]
+      },
+      {
+        "type": "overwrite",
+        "apis": ["NCCREATE", "SETTEXT"],
+        "value": "My Window Title"
+      }
+    ]
   }
 }
 ```
