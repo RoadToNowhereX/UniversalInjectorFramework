@@ -35,7 +35,7 @@ namespace uif::utils {
 
 	static void debug_log_write(HANDLE file, const char* text)
 	{
-		const DWORD length = strlen(text);
+		const DWORD length = static_cast<DWORD>(strlen(text));
 		DWORD written = 0;
 		const auto success = WriteFile(file, text, length, &written, nullptr);
 
