@@ -3,6 +3,8 @@
 
 #include <string>
 
+#include "utils.h"
+
 namespace uif::hooks {
 	bool hook_import(const features::feature_base* feature, const char* importName, void* hookFunction);
 	bool unhook_import(const features::feature_base* feature, const char* importName, void* hookFunction);
@@ -20,5 +22,19 @@ namespace uif::hooks {
 	bool unhook_function(const features::feature_base* feature, TTarget& targetFunction, TDetour hookFunction, const std::string& functionName = "")
 	{
 		return unhook_function(feature, *reinterpret_cast<void**>(&targetFunction), *reinterpret_cast<void**>(&hookFunction), functionName);
+	}
+
+	template<typename TTarget>
+	TTarget* find_pointer(const std::string& address)
+	{
+		return static_cast<TTarget*>(utils::parse_address(address));
+	}
+
+	template<typename TTarget>
+	TTarget& find_reference(const std::string& address)
+	{
+		TTarget* pointer = find_pointer<TTarget>(address);
+		if (!pointer) utils::fail("Failed to resolve " + address);
+		return *pointer;
 	}
 }

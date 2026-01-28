@@ -98,6 +98,7 @@ namespace uif::utils
 
 		return reinterpret_cast<void*>(address);
 	}
+	
 
 	std::filesystem::path get_dll_path()
 	{
