@@ -5,7 +5,7 @@ on:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
-  workflow_dispatch: # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -27,18 +27,45 @@ jobs:
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v1.1
 
-    # 1. 编译依赖库 Detours (使用 Release 配置)
+    # 1. 编译 Detours (保持 Release)
     - name: Build Detours
       run: |
         msbuild src/Detours/Detours.vcxproj /p:Configuration=Release /p:Platform=${{ matrix.platform }} /p:OutDir="${{ github.workspace }}\Build\Detours\${{ matrix.platform }}\Release\\"
 
-    # 2. 编译 ProxyGenerator (可选，如果需要生成器工具)
+    # 2. 编译 ProxyGenerator (可选)
     - name: Build ProxyGenerator
       run: |
         msbuild src/ProxyGenerator/ProxyGenerator.vcxproj /p:Configuration=Release /p:Platform=${{ matrix.platform }}
 
+    # ------------------------------------------------------------------
+    # 【关键修复】: 修改 vcxproj，强制 Detours 依赖使用 Release 配置
+    # ------------------------------------------------------------------
+    - name: Patch Project Configuration
+      shell: powershell
+      run: |
+        $path = "src/UniversalInjectorFramework/UniversalInjectorFramework.vcxproj"
+        # 读取文件内容
+        $content = Get-Content $path -Raw
+        
+        # 查找 Detours 的 ProjectReference GUID
+        $guid = "{962a7719-2381-40d0-8214-377689f9429a}"
+        
+        # 我们需要在 <Project>...</Project> 后面插入 <Properties>Configuration=Release</Properties>
+        # 这样无论主项目是什么配置，Detours 都会以 Release 模式编译和链接
+        if ($content -match $guid) {
+            Write-Host "Patching Detours reference in vcxproj..."
+            $replace = "<Project>$guid</Project><Properties>Configuration=Release</Properties>"
+            $content = $content -replace [regex]::Escape("<Project>$guid</Project>"), $replace
+            Set-Content $path $content
+        } else {
+            Write-Error "Could not find Detours reference in vcxproj!"
+            exit 1
+        }
+        
+        # 打印部分内容以验证
+        Get-Content $path | Select-String -Pattern "Configuration=Release" -Context 2
+
     # 3. 编译 UIF 的所有代理 DLL
-    # UIF 的 vcxproj 很特殊，它利用 Configuration 名称来决定输出的文件名和功能
     - name: Build UniversalInjectorFramework Proxies
       shell: powershell
       run: |
@@ -58,10 +85,10 @@ jobs:
 
         foreach ($proxy in $proxies) {
             Write-Host "Building $proxy for ${{ matrix.platform }}..."
+            # 注意：不再需要指定 /p:SolutionDir，因为我们修改了 vcxproj，它能自动找到依赖
             msbuild src/UniversalInjectorFramework/UniversalInjectorFramework.vcxproj `
                 /p:Configuration=$proxy `
                 /p:Platform=${{ matrix.platform }} `
-                /p:SolutionDir="${{ github.workspace }}\src\\" `
                 /t:Build
         }
 
@@ -74,12 +101,11 @@ jobs:
         # 复制所有生成的 DLL
         Get-ChildItem -Path "Build\UniversalInjectorFramework\${{ matrix.platform }}\*" -Include *.dll -Recurse | Copy-Item -Destination "Artifacts\${{ matrix.arch }}"
         
-        # 复制 ProxyGenerator (如果有的话)
+        # 复制 ProxyGenerator
         if (Test-Path "Build\ProxyGenerator\${{ matrix.platform }}\Release\ProxyGenerator.exe") {
             Copy-Item "Build\ProxyGenerator\${{ matrix.platform }}\Release\ProxyGenerator.exe" "Artifacts\${{ matrix.arch }}"
         }
 
-    # 5. 上传产物
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
