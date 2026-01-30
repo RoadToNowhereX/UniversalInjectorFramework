@@ -1,0 +1,46 @@
+name: Build UniversalInjectorFramework
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    strategy:
+      matrix:
+        configuration: [Release]
+        platform: [x64, x86] # 通常注入器需要同时编译 32位和64位版本
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive # 如果 Detours 是作为子模块存在的，这行很重要
+
+    - name: Add MSBuild to PATH
+      uses: microsoft/setup-msbuild@v1.3
+
+    - name: Restore NuGet packages
+      working-directory: src
+      run: nuget restore UniversalInjectorFramework.sln
+
+    - name: Build Solution
+      working-directory: src
+      # 使用 MSBuild 编译，指定配置和平台
+      run: msbuild UniversalInjectorFramework.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: UniversalInjectorFramework-${{ matrix.platform }}-${{ matrix.configuration }}
+        # 注意：你需要根据实际生成路径调整 path。
+        # Visual Studio 默认通常生成在 src/x64/Release 或 src/Release 目录下
+        path: |
+          src/**/Release/*.exe
+          src/**/Release/*.dll
+          src/**/Release/*.lib
