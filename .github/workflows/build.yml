@@ -1,63 +1,87 @@
 name: Build UniversalInjectorFramework
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # 允许手动触发
 
 jobs:
   build:
+    name: Build ${{ matrix.arch }}
     runs-on: windows-latest
-    
     strategy:
       matrix:
-        platform: [Win32, x64]
-        # 这里列出你想编译的 DLL 版本，根据 vcxproj 文件，可选值有：
-        # d3d8, d3d9, d3d11, dxgi, opengl32, version, winmm, iphlpapi 等
-        # 我们这里演示编译最常用的几个
-        target_dll: [d3d8, d3d9, d3d11, d3dcompiler_43, d3dcompiler_47, d3dx9_43, dxgi, iphlpapi, opengl32, version, winmm]
+        arch: [x64, x86]
+        include:
+          - arch: x64
+            platform: x64
+          - arch: x86
+            platform: Win32
 
     steps:
-    - name: Checkout code
+    - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        submodules: recursive
 
     - name: Add MSBuild to PATH
-      uses: microsoft/setup-msbuild@v1.3
+      uses: microsoft/setup-msbuild@v1.1
 
-    - name: Restore NuGet packages
-      working-directory: src
-      run: nuget restore UniversalInjectorFramework.sln
-
-    # ----------------------------------------------------------------
-    # 第一步：先编译 Detours 库
-    # Detours 使用标准的 "Release" 配置，必须先单独编译好
-    # ----------------------------------------------------------------
-    - name: Build Detours (Dependency)
-      working-directory: src
-      run: msbuild Detours/Detours.vcxproj /p:Configuration=Release /p:Platform=${{ matrix.platform }}
-
-    # ----------------------------------------------------------------
-    # 第二步：编译主项目
-    # 1. Configuration 设置为具体的 DLL 名 (如 version)
-    # 2. BuildProjectReferences=false 告诉它不要重新编译 Detours (防止配置名传参错误)
-    # ----------------------------------------------------------------
-    - name: Build Injector (${{ matrix.target_dll }})
-      working-directory: src
+    # 1. 编译依赖库 Detours (使用 Release 配置)
+    - name: Build Detours
       run: |
-        msbuild UniversalInjectorFramework/UniversalInjectorFramework.vcxproj `
-          /p:Configuration=${{ matrix.target_dll }} `
-          /p:Platform=${{ matrix.platform }} `
-          /p:BuildProjectReferences=false `
-          /p:SolutionDir="${{ github.workspace }}\src\\"
+        msbuild src/Detours/Detours.vcxproj /p:Configuration=Release /p:Platform=${{ matrix.platform }} /p:OutDir="${{ github.workspace }}\Build\Detours\${{ matrix.platform }}\Release\\"
 
-    # ----------------------------------------------------------------
-    # 上传产物
-    # 根据 vcxproj 的 <OutDir>，生成目录在 Build 文件夹下
-    # ----------------------------------------------------------------
+    # 2. 编译 ProxyGenerator (可选，如果需要生成器工具)
+    - name: Build ProxyGenerator
+      run: |
+        msbuild src/ProxyGenerator/ProxyGenerator.vcxproj /p:Configuration=Release /p:Platform=${{ matrix.platform }}
+
+    # 3. 编译 UIF 的所有代理 DLL
+    # UIF 的 vcxproj 很特殊，它利用 Configuration 名称来决定输出的文件名和功能
+    - name: Build UniversalInjectorFramework Proxies
+      shell: powershell
+      run: |
+        $proxies = @(
+            "d3d8", 
+            "d3d9", 
+            "d3d11", 
+            "d3dcompiler_43", 
+            "d3dcompiler_47", 
+            "d3dx9_43", 
+            "dxgi", 
+            "iphlpapi", 
+            "opengl32", 
+            "version", 
+            "winmm"
+        )
+
+        foreach ($proxy in $proxies) {
+            Write-Host "Building $proxy for ${{ matrix.platform }}..."
+            msbuild src/UniversalInjectorFramework/UniversalInjectorFramework.vcxproj `
+                /p:Configuration=$proxy `
+                /p:Platform=${{ matrix.platform }} `
+                /p:SolutionDir="${{ github.workspace }}\src\\" `
+                /t:Build
+        }
+
+    # 4. 整理构建产物
+    - name: Collect Artifacts
+      shell: powershell
+      run: |
+        New-Item -ItemType Directory -Force -Path "Artifacts\${{ matrix.arch }}"
+        
+        # 复制所有生成的 DLL
+        Get-ChildItem -Path "Build\UniversalInjectorFramework\${{ matrix.platform }}\*" -Include *.dll -Recurse | Copy-Item -Destination "Artifacts\${{ matrix.arch }}"
+        
+        # 复制 ProxyGenerator (如果有的话)
+        if (Test-Path "Build\ProxyGenerator\${{ matrix.platform }}\Release\ProxyGenerator.exe") {
+            Copy-Item "Build\ProxyGenerator\${{ matrix.platform }}\Release\ProxyGenerator.exe" "Artifacts\${{ matrix.arch }}"
+        }
+
+    # 5. 上传产物
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.target_dll }}-${{ matrix.platform }}
-        path: |
-          src/Build/UniversalInjectorFramework/${{ matrix.platform }}/**/*.dll
-          src/Build/UniversalInjectorFramework/${{ matrix.platform }}/**/*.lib
-          src/Build/UniversalInjectorFramework/${{ matrix.platform }}/**/*.pdb
+        name: UniversalInjectorFramework-${{ matrix.arch }}
+        path: Artifacts/${{ matrix.arch }}
