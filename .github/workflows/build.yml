@@ -5,7 +5,7 @@ on:
     branches: [ "master", "main" ]
   pull_request:
     branches: [ "master", "main" ]
-  workflow_dispatch: # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,13 +14,14 @@ jobs:
     strategy:
       matrix:
         configuration: [Release]
-        platform: [x64, x86] # 通常注入器需要同时编译 32位和64位版本
+        # 修改点：将 x86 改为 Win32
+        platform: [x64, Win32]
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        submodules: recursive # 如果 Detours 是作为子模块存在的，这行很重要
+        submodules: recursive
 
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v1.3
@@ -31,15 +32,16 @@ jobs:
 
     - name: Build Solution
       working-directory: src
-      # 使用 MSBuild 编译，指定配置和平台
+      # 使用 matrix.platform 变量，现在它会是 'Win32' 或 'x64'，这符合 VS 的标准
       run: msbuild UniversalInjectorFramework.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
         name: UniversalInjectorFramework-${{ matrix.platform }}-${{ matrix.configuration }}
-        # 注意：你需要根据实际生成路径调整 path。
-        # Visual Studio 默认通常生成在 src/x64/Release 或 src/Release 目录下
+        # 注意：由于 Win32 和 x64 的输出目录结构通常不同，使用 ** 通配符可以同时匹配到：
+        # Win32通常在: src/Release/
+        # x64通常在:   src/x64/Release/
         path: |
           src/**/Release/*.exe
           src/**/Release/*.dll
