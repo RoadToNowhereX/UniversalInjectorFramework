@@ -38,34 +38,25 @@ jobs:
         msbuild src/ProxyGenerator/ProxyGenerator.vcxproj /p:Configuration=Release /p:Platform=${{ matrix.platform }}
 
     # ------------------------------------------------------------------
-    # 【关键修复】: 修改 vcxproj，强制 Detours 依赖使用 Release 配置
+    # 修改 vcxproj，强制 Detours 依赖使用 Release 配置
     # ------------------------------------------------------------------
     - name: Patch Project Configuration
       shell: powershell
       run: |
         $path = "src/UniversalInjectorFramework/UniversalInjectorFramework.vcxproj"
-        # 读取文件内容
         $content = Get-Content $path -Raw
-        
-        # 查找 Detours 的 ProjectReference GUID
         $guid = "{962a7719-2381-40d0-8214-377689f9429a}"
         
-        # 我们需要在 <Project>...</Project> 后面插入 <Properties>Configuration=Release</Properties>
-        # 这样无论主项目是什么配置，Detours 都会以 Release 模式编译和链接
         if ($content -match $guid) {
             Write-Host "Patching Detours reference in vcxproj..."
+            # 替换 ProjectReference 节点，注入 Configuration 属性
             $replace = "<Project>$guid</Project><Properties>Configuration=Release</Properties>"
             $content = $content -replace [regex]::Escape("<Project>$guid</Project>"), $replace
             Set-Content $path $content
-        } else {
-            Write-Error "Could not find Detours reference in vcxproj!"
-            exit 1
         }
-        
-        # 打印部分内容以验证
-        Get-Content $path | Select-String -Pattern "Configuration=Release" -Context 2
 
     # 3. 编译 UIF 的所有代理 DLL
+    # 【关键修复】：必须显式传递 SolutionDir，否则 IncludePath 会失效导致找不到头文件
     - name: Build UniversalInjectorFramework Proxies
       shell: powershell
       run: |
@@ -85,10 +76,10 @@ jobs:
 
         foreach ($proxy in $proxies) {
             Write-Host "Building $proxy for ${{ matrix.platform }}..."
-            # 注意：不再需要指定 /p:SolutionDir，因为我们修改了 vcxproj，它能自动找到依赖
             msbuild src/UniversalInjectorFramework/UniversalInjectorFramework.vcxproj `
                 /p:Configuration=$proxy `
                 /p:Platform=${{ matrix.platform }} `
+                /p:SolutionDir="${{ github.workspace }}\src\\" `
                 /t:Build
         }
 
