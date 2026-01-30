@@ -1,11 +1,6 @@
-name: Build UniversalInjectorFramework
+name: Build DLL Only
 
-on:
-  push:
-    branches: [ "master", "main" ]
-  pull_request:
-    branches: [ "master", "main" ]
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 jobs:
   build:
@@ -14,8 +9,8 @@ jobs:
     strategy:
       matrix:
         configuration: [Release]
-        # 修改点：将 x86 改为 Win32
-        platform: [x64, Win32]
+        # 直接编译 vcxproj 时，必须使用 'Win32' (代表x86) 和 'x64'
+        platform: [Win32, x64]
 
     steps:
     - name: Checkout code
@@ -30,19 +25,18 @@ jobs:
       working-directory: src
       run: nuget restore UniversalInjectorFramework.sln
 
-    - name: Build Solution
+    - name: Build C++ Project Directly
       working-directory: src
-      # 使用 matrix.platform 变量，现在它会是 'Win32' 或 'x64'，这符合 VS 的标准
-      run: msbuild UniversalInjectorFramework.sln /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
+      # 修改点：直接指向 .vcxproj 文件，而不是 .sln
+      # 这样就可以强制使用 Win32 和 x64 平台参数
+      run: msbuild UniversalInjectorFramework/UniversalInjectorFramework.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: UniversalInjectorFramework-${{ matrix.platform }}-${{ matrix.configuration }}
-        # 注意：由于 Win32 和 x64 的输出目录结构通常不同，使用 ** 通配符可以同时匹配到：
-        # Win32通常在: src/Release/
-        # x64通常在:   src/x64/Release/
+        name: UniversalInjectorFramework-${{ matrix.platform }}
         path: |
-          src/**/Release/*.exe
           src/**/Release/*.dll
           src/**/Release/*.lib
+          src/**/x64/Release/*.dll
+          src/**/x64/Release/*.lib
