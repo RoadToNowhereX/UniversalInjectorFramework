@@ -1,4 +1,4 @@
-name: Build DLL Only
+name: Build UniversalInjectorFramework
 
 on: [push, workflow_dispatch]
 
@@ -8,9 +8,11 @@ jobs:
     
     strategy:
       matrix:
-        configuration: [Release]
-        # 直接编译 vcxproj 时，必须使用 'Win32' (代表x86) 和 'x64'
         platform: [Win32, x64]
+        # 这里列出你想编译的 DLL 版本，根据 vcxproj 文件，可选值有：
+        # d3d8, d3d9, d3d11, dxgi, opengl32, version, winmm, iphlpapi 等
+        # 我们这里演示编译最常用的几个
+        target_dll: [d3d8, d3d9, d3d11, d3dcompiler_43, d3dcompiler_47, d3dx9_43, dxgi, iphlpapi, opengl32, version, winmm]
 
     steps:
     - name: Checkout code
@@ -25,18 +27,37 @@ jobs:
       working-directory: src
       run: nuget restore UniversalInjectorFramework.sln
 
-    - name: Build C++ Project Directly
+    # ----------------------------------------------------------------
+    # 第一步：先编译 Detours 库
+    # Detours 使用标准的 "Release" 配置，必须先单独编译好
+    # ----------------------------------------------------------------
+    - name: Build Detours (Dependency)
       working-directory: src
-      # 修改点：直接指向 .vcxproj 文件，而不是 .sln
-      # 这样就可以强制使用 Win32 和 x64 平台参数
-      run: msbuild UniversalInjectorFramework/UniversalInjectorFramework.vcxproj /p:Configuration=${{ matrix.configuration }} /p:Platform=${{ matrix.platform }}
+      run: msbuild Detours/Detours.vcxproj /p:Configuration=Release /p:Platform=${{ matrix.platform }}
 
+    # ----------------------------------------------------------------
+    # 第二步：编译主项目
+    # 1. Configuration 设置为具体的 DLL 名 (如 version)
+    # 2. BuildProjectReferences=false 告诉它不要重新编译 Detours (防止配置名传参错误)
+    # ----------------------------------------------------------------
+    - name: Build Injector (${{ matrix.target_dll }})
+      working-directory: src
+      run: |
+        msbuild UniversalInjectorFramework/UniversalInjectorFramework.vcxproj `
+          /p:Configuration=${{ matrix.target_dll }} `
+          /p:Platform=${{ matrix.platform }} `
+          /p:BuildProjectReferences=false `
+          /p:SolutionDir="${{ github.workspace }}\src\\"
+
+    # ----------------------------------------------------------------
+    # 上传产物
+    # 根据 vcxproj 的 <OutDir>，生成目录在 Build 文件夹下
+    # ----------------------------------------------------------------
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: UniversalInjectorFramework-${{ matrix.platform }}
+        name: ${{ matrix.target_dll }}-${{ matrix.platform }}
         path: |
-          src/**/Release/*.dll
-          src/**/Release/*.lib
-          src/**/x64/Release/*.dll
-          src/**/x64/Release/*.lib
+          src/Build/UniversalInjectorFramework/${{ matrix.platform }}/**/*.dll
+          src/Build/UniversalInjectorFramework/${{ matrix.platform }}/**/*.lib
+          src/Build/UniversalInjectorFramework/${{ matrix.platform }}/**/*.pdb
